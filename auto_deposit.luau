@@ -22,28 +22,17 @@ _G.ElevenCleanup = function()
     if old then old:Destroy() end
 end
 
--- Find My Plot
-local function getMyPlot()
-    for _, plot in ipairs(Plots:GetChildren()) do
-        local channel = Synchronizer:Get(plot.Name)
-        if channel and channel:Get("Owner") == LocalPlayer then return plot end
-    end
-    return nil
-end
-
-local myPlot = getMyPlot()
-while active and not myPlot do task.wait(1) myPlot = getMyPlot() end
-local deliveryHitbox = myPlot and myPlot:WaitForChild("DeliveryHitbox")
-
 -- States
 local autoDeposit = true
-local autoSteal = false
+local autoSteal = true
 local autoFarm = false
 local manualNoclip = false
 local tempNoclip = false
 local lastTarget = nil
+local myPlot = nil
+local deliveryHitbox = nil
 
--- UI Implementation
+-- UI Implementation (Moved up to avoid blocking)
 local sg = Instance.new("ScreenGui")
 sg.Name = "ElevenHub"
 sg.ResetOnSpawn = false
@@ -75,7 +64,7 @@ local function createBtn(text, startState, pos, color, isToggle, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.9, 0, 0, 32)
     btn.Position = pos
-    btn.BackgroundColor3 = color
+    btn.BackgroundColor3 = isToggle and (startState and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(40, 40, 50)) or color
     btn.Text = isToggle and (text .. ": " .. (startState and "ON" or "OFF")) or text
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamMedium
@@ -96,10 +85,10 @@ local function createBtn(text, startState, pos, color, isToggle, callback)
     end
 end
 
-createBtn("INSTA TP", true, UDim2.new(0.05, 0, 0.15, 0), Color3.fromRGB(0, 150, 80), true, function(s) autoDeposit = s end)
-createBtn("INSTANT STEAL", true, UDim2.new(0.05, 0, 0.28, 0), Color3.fromRGB(0, 150, 80), true, function(s) autoSteal = s end)
-createBtn("AUTO FARM", false, UDim2.new(0.05, 0, 0.41, 0), Color3.fromRGB(40, 40, 50), true, function(s) autoFarm = s end)
-createBtn("NOCLIP", false, UDim2.new(0.05, 0, 0.54, 0), Color3.fromRGB(40, 40, 50), true, function(s) manualNoclip = s end)
+createBtn("INSTA TP", autoDeposit, UDim2.new(0.05, 0, 0.15, 0), nil, true, function(s) autoDeposit = s end)
+createBtn("INSTANT STEAL", autoSteal, UDim2.new(0.05, 0, 0.28, 0), nil, true, function(s) autoSteal = s end)
+createBtn("AUTO FARM", autoFarm, UDim2.new(0.05, 0, 0.41, 0), nil, true, function(s) autoFarm = s end)
+createBtn("NOCLIP", manualNoclip, UDim2.new(0.05, 0, 0.54, 0), nil, true, function(s) manualNoclip = s end)
 createBtn("TP NEXT BEST", false, UDim2.new(0.05, 0, 0.67, 0), Color3.fromRGB(120, 0, 180), false, function()
     local bestVal, bestObj = -1, nil
     for _, plot in ipairs(Plots:GetChildren()) do
@@ -115,10 +104,8 @@ createBtn("TP NEXT BEST", false, UDim2.new(0.05, 0, 0.67, 0), Color3.fromRGB(120
     end
     if bestObj then
         lastTarget = bestObj
-        tempNoclip = true
         local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if hrp then hrp.CFrame = bestObj.PrimaryPart.CFrame end
-        task.delay(0.5, function() if active then tempNoclip = false end end)
     end
 end)
 
@@ -130,7 +117,7 @@ cr.Text = "slayzdevv (Owner)\nBexta dev | Hugo dev"
 cr.TextColor3 = Color3.fromRGB(150, 150, 150)
 cr.TextSize = 10
 
--- Draggable logic
+-- Mobile Draggable logic
 local dragging, dragStart, startPos
 main.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -145,7 +132,25 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 UserInputService.InputEnded:Connect(function() dragging = false end)
 
--- Core Loop
+-- Background Plot Check
+task.spawn(function()
+    while active do
+        if not myPlot then
+            for _, plot in ipairs(Plots:GetChildren()) do
+                local channel = Synchronizer:Get(plot.Name)
+                if channel and channel:Get("Owner") == LocalPlayer then
+                    myPlot = plot
+                    deliveryHitbox = plot:FindFirstChild("DeliveryHitbox")
+                    print("[Eleven Hub] Plot found:", plot.Name)
+                    break
+                end
+            end
+        end
+        task.wait(2)
+    end
+end)
+
+-- Core Loops
 table.insert(connections, RunService.Stepped:Connect(function()
     if not active then return end
     if manualNoclip or tempNoclip or autoFarm then
@@ -154,11 +159,9 @@ table.insert(connections, RunService.Stepped:Connect(function()
     end
 end))
 
--- Instant Steal Interaction
+-- Instant Steal
 table.insert(connections, RunService.Heartbeat:Connect(function()
-    if not active or not autoSteal then return end
-    if LocalPlayer:GetAttribute("Stealing") then return end
-
+    if not active or not autoSteal or LocalPlayer:GetAttribute("Stealing") then return end
     local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
@@ -170,7 +173,7 @@ table.insert(connections, RunService.Heartbeat:Connect(function()
                 for _, podium in ipairs(podiums:GetChildren()) do
                     local base = podium:FindFirstChild("Base")
                     local vpos = base and base.Position or (podium.PrimaryPart and podium.PrimaryPart.Position)
-                    if vpos and (hrp.Position - vpos).Magnitude < 25 then
+                    if vpos and (hrp.Position - vpos).Magnitude < 30 then
                         for _, child in ipairs(podium:GetChildren()) do
                             if child:IsA("Model") and child.PrimaryPart then GrabRemote:FireServer(child) end
                         end
@@ -183,21 +186,20 @@ table.insert(connections, RunService.Heartbeat:Connect(function()
     end
 end))
 
--- Instant Auto Deposit
+-- Instant Deposit
 table.insert(connections, LocalPlayer:GetAttributeChangedSignal("Stealing"):Connect(function()
     if not autoDeposit or not active then return end
-    if LocalPlayer:GetAttribute("Stealing") then
+    if LocalPlayer:GetAttribute("Stealing") and deliveryHitbox then
         local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if hrp and deliveryHitbox then
+        if hrp then 
             tempNoclip = true
             hrp.CFrame = deliveryHitbox.CFrame
-            task.wait(0.1)
-            tempNoclip = false
+            task.delay(0.2, function() tempNoclip = false end)
         end
     end
 end))
 
--- Auto Farm Logic
+-- Auto Farm Cycle
 task.spawn(function()
     while active do
         task.wait(0.2)
@@ -220,11 +222,11 @@ task.spawn(function()
                 local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     hrp.CFrame = bestObj.PrimaryPart.CFrame
-                    task.wait(0.5) -- Wait for steal to trigger
+                    task.wait(0.5) -- Time for steal to trigger
                 end
             end
         end
     end
 end)
 
-print("[Eleven Hub] Injected (Instant Mode).")
+print("[Eleven Hub] Injected (Fixed UI).")
