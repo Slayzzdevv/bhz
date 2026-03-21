@@ -1,232 +1,266 @@
+--========================================================--
+-- HugoScripts | Ultimate UGC Beginner Hub                 --
+-- Built natively for PlaceId: 90625015569871              --
+-- Using Native Remotes & Game Files                       --
+--========================================================--
+
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
 
-local Net = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Net")
-local GrabRemote = Net:WaitForChild("RE/StealService/Grab")
-local Synchronizer = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Synchronizer"))
-local SharedAnimals = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Animals"))
-local Plots = workspace:WaitForChild("Plots")
+local player = Players.LocalPlayer
+local remotes = ReplicatedStorage:WaitForChild("Remote")
 
--- Global Cleanup
-if _G.ElevenCleanup then pcall(_G.ElevenCleanup) end
-local connections = {}
-local active = true
-_G.ElevenCleanup = function()
-    active = false
-    for _, c in ipairs(connections) do if c.Disconnect then pcall(function() c:Disconnect() end) end end
-    local old = LocalPlayer.PlayerGui:FindFirstChild("ElevenHub")
-    if old then old:Destroy() end
-end
+--=================== UI VARIABLES =======================--
+local HugoHub = Instance.new("ScreenGui")
+HugoHub.Name = "HugoScripts_UGC_V2"
+HugoHub.ResetOnSpawn = false
 
--- States
-local autoDeposit = true
-local autoSteal = true
-local autoFarm = false
-local manualNoclip = false
-local tempNoclip = false
-local lastTarget = nil
-local myPlot = nil
-local deliveryHitbox = nil
+local success, err = pcall(function() HugoHub.Parent = CoreGui end)
+if not success then HugoHub.Parent = player:WaitForChild("PlayerGui") end
 
--- UI Implementation (Moved up to avoid blocking)
-local sg = Instance.new("ScreenGui")
-sg.Name = "ElevenHub"
-sg.ResetOnSpawn = false
-sg.Parent = LocalPlayer:WaitForChild("PlayerGui")
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 600, 0, 400)
+MainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = HugoHub
+MainFrame.Active = true
+MainFrame.Draggable = true
 
-local main = Instance.new("Frame")
-main.Name = "MainFrame"
-main.Size = UDim2.new(0, 210, 0, 320)
-main.Position = UDim2.new(0.5, -105, 0.5, -160)
-main.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
-main.BackgroundTransparency = 0.1
-main.BorderSizePixel = 0
-main.Parent = sg
-Instance.new("UICorner", main).CornerRadius = UDim.new(0, 12)
-local stroke = Instance.new("UIStroke", main)
-stroke.Color = Color3.fromRGB(255, 0, 120)
-stroke.Thickness = 2.5
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
 
-local title = Instance.new("TextLabel")
-title.Text = "ELEVEN HUB"
-title.Size = UDim2.new(1, 0, 0, 40)
-title.BackgroundTransparency = 1
-title.TextColor3 = Color3.new(1, 1, 1)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 16
-title.Parent = main
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(45, 45, 55)
+UIStroke.Thickness = 2
+UIStroke.Parent = MainFrame
 
-local function createBtn(text, startState, pos, color, isToggle, callback)
+-- Sidebar
+local Sidebar = Instance.new("Frame")
+Sidebar.Size = UDim2.new(0, 150, 1, 0)
+Sidebar.BackgroundColor3 = Color3.fromRGB(10, 10, 12)
+Sidebar.BorderSizePixel = 0
+Sidebar.Parent = MainFrame
+
+local SidebarCorner = Instance.new("UICorner")
+SidebarCorner.CornerRadius = UDim.new(0, 10)
+SidebarCorner.Parent = Sidebar
+
+local SidebarLayout = Instance.new("UIListLayout")
+SidebarLayout.Padding = UDim.new(0, 5)
+SidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SidebarLayout.Parent = Sidebar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 50)
+Title.BackgroundTransparency = 1
+Title.Text = "HugoScripts"
+Title.TextColor3 = Color3.fromRGB(255, 60, 60)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 20
+Title.Parent = Sidebar
+
+-- Content Container
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, -160, 1, -20)
+Content.Position = UDim2.new(0, 155, 0, 10)
+Content.BackgroundTransparency = 1
+Content.Parent = MainFrame
+
+local Tabs = {}
+local function cTab(name, isDefault)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.9, 0, 0, 32)
-    btn.Position = pos
-    btn.BackgroundColor3 = isToggle and (startState and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(40, 40, 50)) or color
-    btn.Text = isToggle and (text .. ": " .. (startState and "ON" or "OFF")) or text
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.GothamMedium
-    btn.TextSize = 11
-    btn.Parent = main
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    
-    if isToggle then
-        local state = startState
-        btn.MouseButton1Click:Connect(function()
-            state = not state
-            btn.Text = text .. ": " .. (state and "ON" or "OFF")
-            btn.BackgroundColor3 = state and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(40, 40, 50)
-            callback(state)
-        end)
-    else
-        btn.MouseButton1Click:Connect(callback)
+    btn.Size = UDim2.new(0.9, 0, 0, 35)
+    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    btn.Font = Enum.Font.GothamSemibold
+    btn.TextSize = 14
+    btn.Parent = Sidebar
+
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = btn
+
+    local page = Instance.new("ScrollingFrame")
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.ScrollBarThickness = 2
+    page.Visible = false
+    page.Parent = Content
+
+    local pl = Instance.new("UIListLayout")
+    pl.Padding = UDim.new(0, 10)
+    pl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    pl.Parent = page
+
+    Tabs[name] = {Btn = btn, Page = page}
+
+    btn.MouseButton1Click:Connect(function()
+        for i, t in pairs(Tabs) do
+            t.Page.Visible = false
+            t.Btn.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+            t.Btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+        end
+        page.Visible = true
+        btn.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end)
+
+    if isDefault then
+        page.Visible = true
+        btn.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     end
+    return page
 end
 
-createBtn("INSTA TP", autoDeposit, UDim2.new(0.05, 0, 0.15, 0), nil, true, function(s) autoDeposit = s end)
-createBtn("INSTANT STEAL", autoSteal, UDim2.new(0.05, 0, 0.28, 0), nil, true, function(s) autoSteal = s end)
-createBtn("AUTO FARM", autoFarm, UDim2.new(0.05, 0, 0.41, 0), nil, true, function(s) autoFarm = s end)
-createBtn("NOCLIP", manualNoclip, UDim2.new(0.05, 0, 0.54, 0), nil, true, function(s) manualNoclip = s end)
-createBtn("TP NEXT BEST", false, UDim2.new(0.05, 0, 0.67, 0), Color3.fromRGB(120, 0, 180), false, function()
-    local bestVal, bestObj = -1, nil
-    for _, plot in ipairs(Plots:GetChildren()) do
-        local channel = Synchronizer:Get(plot.Name)
-        if channel and channel:Get("Owner") ~= LocalPlayer then
-            for _, child in ipairs(plot:GetChildren()) do
-                if child:IsA("Model") and child.PrimaryPart and child ~= lastTarget then
-                    local s, g = pcall(function() return SharedAnimals:GetGeneration(child.Name, child:GetAttribute("Mutation"), (child:GetAttribute("Traits") or ""):split(",")) end)
-                    if s and g > bestVal then bestVal, bestObj = g, child end
-                end
-            end
+local function cOpt(page, text, callback, isToggle)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.95, 0, 0, 40)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    btn.Text = "  " .. text
+    btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 14
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.Parent = page
+
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = btn
+
+    local active = false
+    btn.MouseButton1Click:Connect(function()
+        if isToggle then
+            active = not active
+            btn.BackgroundColor3 = active and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(25, 25, 30)
+            btn.TextColor3 = active and Color3.fromRGB(255,255,255) or Color3.fromRGB(220, 220, 220)
+            callback(active)
+        else
+            callback()
         end
-    end
-    if bestObj then
-        lastTarget = bestObj
-        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then hrp.CFrame = bestObj.PrimaryPart.CFrame end
-    end
-end)
+    end)
+end
 
-local cr = Instance.new("TextLabel", main)
-cr.Size = UDim2.new(1, 0, 0, 40)
-cr.Position = UDim2.new(0, 0, 1, -40)
-cr.BackgroundTransparency = 1
-cr.Text = "slayzdevv (Owner)\nBexta dev | Hugo dev"
-cr.TextColor3 = Color3.fromRGB(150, 150, 150)
-cr.TextSize = 10
+--=================== TABS =======================--
+local MainTab = cTab("Automation ⚡", true)
+local CombatTab = cTab("Combat ⚔️", false)
+local VisualTab = cTab("World 👁️", false)
+local MiscTab   = cTab("Misc ⚙️", false)
 
--- Mobile Draggable logic
-local dragging, dragStart, startPos
-main.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging, dragStart, startPos = true, input.Position, main.Position
-    end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-UserInputService.InputEnded:Connect(function() dragging = false end)
+--=================== STATE =======================--
+local s = {
+    AutoQuest = false,
+    AutoGacha = false,
+    AutoReward = false,
+    WalkSpeed = 16,
+    JumpPower = 50,
+    InfJump = true, -- Always on per user preference
+    Noclip = false,
+    AntiAFK = true,
+    AntiRagdoll = true, -- Always on
+}
 
--- Background Plot Check
+--=================== AUTOMATION ===================--
+cOpt(MainTab, "Auto Claim Quests", function(v) s.AutoQuest = v end, true)
+cOpt(MainTab, "Auto Claim Online Rewards", function(v) s.AutoReward = v end, true)
+cOpt(MainTab, "Fast Auto Gacha", function(v) s.AutoGacha = v end, true)
+
+-- Native Remote Exploits
 task.spawn(function()
-    while active do
-        if not myPlot then
-            for _, plot in ipairs(Plots:GetChildren()) do
-                local channel = Synchronizer:Get(plot.Name)
-                if channel and channel:Get("Owner") == LocalPlayer then
-                    myPlot = plot
-                    deliveryHitbox = plot:FindFirstChild("DeliveryHitbox")
-                    print("[Eleven Hub] Plot found:", plot.Name)
-                    break
-                end
-            end
+    while task.wait(1) do
+        if s.AutoQuest then
+            pcall(function() remotes.QuestService.ClaimReward:InvokeServer(1) end) -- Claim first available
         end
-        task.wait(2)
-    end
-end)
-
--- Core Loops
-table.insert(connections, RunService.Stepped:Connect(function()
-    if not active then return end
-    if manualNoclip or tempNoclip or autoFarm then
-        local char = LocalPlayer.Character
-        if char then for _, part in ipairs(char:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = false end end end
-    end
-end))
-
--- Instant Steal
-table.insert(connections, RunService.Heartbeat:Connect(function()
-    if not active or not autoSteal or LocalPlayer:GetAttribute("Stealing") then return end
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    for _, plot in ipairs(Plots:GetChildren()) do
-        local channel = Synchronizer:Get(plot.Name)
-        if channel and channel:Get("Owner") ~= LocalPlayer then
-            local podiums = plot:FindFirstChild("AnimalPodiums")
-            if podiums then
-                for _, podium in ipairs(podiums:GetChildren()) do
-                    local base = podium:FindFirstChild("Base")
-                    local vpos = base and base.Position or (podium.PrimaryPart and podium.PrimaryPart.Position)
-                    if vpos and (hrp.Position - vpos).Magnitude < 30 then
-                        for _, child in ipairs(podium:GetChildren()) do
-                            if child:IsA("Model") and child.PrimaryPart then GrabRemote:FireServer(child) end
-                        end
-                        local prompt = podium:FindFirstChildWhichIsA("ProximityPrompt", true)
-                        if prompt and prompt.Enabled then fireproximityprompt(prompt) end
-                    end
-                end
-            end
+        if s.AutoReward then
+            pcall(function() remotes.Rewards.OnlineRewardClaim:InvokeServer() end)
         end
-    end
-end))
-
--- Instant Deposit
-table.insert(connections, LocalPlayer:GetAttributeChangedSignal("Stealing"):Connect(function()
-    if not autoDeposit or not active then return end
-    if LocalPlayer:GetAttribute("Stealing") and deliveryHitbox then
-        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then 
-            tempNoclip = true
-            hrp.CFrame = deliveryHitbox.CFrame
-            task.delay(0.2, function() tempNoclip = false end)
+        if s.AutoGacha then
+            pcall(function() remotes.GachaService.Gacha:InvokeServer(1) end) -- Single pull
         end
-    end
-end))
-
--- Auto Farm Cycle
-task.spawn(function()
-    while active do
-        task.wait(0.2)
-        if autoFarm and not LocalPlayer:GetAttribute("Stealing") then
-            local bestVal, bestObj = -1, nil
-            for _, plot in ipairs(Plots:GetChildren()) do
-                local channel = Synchronizer:Get(plot.Name)
-                if channel and channel:Get("Owner") ~= LocalPlayer then
-                    for _, child in ipairs(plot:GetChildren()) do
-                        if child:IsA("Model") and child.PrimaryPart and child ~= lastTarget then
-                            local s, g = pcall(function() return SharedAnimals:GetGeneration(child.Name, child:GetAttribute("Mutation"), (child:GetAttribute("Traits") or ""):split(",")) end)
-                            if s and g > bestVal then bestVal, bestObj = g, child end
-                        end
-                    end
-                end
-            end
-            
-            if bestObj then
-                lastTarget = bestObj
-                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.CFrame = bestObj.PrimaryPart.CFrame
-                    task.wait(0.5) -- Time for steal to trigger
-                end
-            end
+        if s.AntiAFK then
+            pcall(function() remotes.Any.AFK:FireServer(false) end)
         end
     end
 end)
 
-print("[Eleven Hub] Injected (Fixed UI).")
+--=================== COMBAT =====================--
+cOpt(CombatTab, "Insta Respawn", function()
+    remotes.GameService.Respawn:FireServer()
+end, false)
+
+cOpt(CombatTab, "Accept Team Invites", function(v)
+    s.AutoTeam = v
+end, true)
+
+-- Team hook
+remotes.TeamService.InviteNotify.OnClientEvent:Connect(function(from)
+    if s.AutoTeam then
+        remotes.TeamService.Accept:InvokeServer(from)
+    end
+end)
+
+--=================== WORLD ======================--
+cOpt(VisualTab, "Fullbright", function(v)
+    s.Fullbright = v
+    if not v then
+        Lighting.Ambient = Color3.fromRGB(127, 127, 127)
+    end
+end, true)
+
+cOpt(VisualTab, "No Shadows", function(v)
+    Lighting.GlobalShadows = not v
+end, true)
+
+--=================== MISC =======================--
+cOpt(MiscTab, "Noclip", function(v) s.Noclip = v end, true)
+cOpt(MiscTab, "Rejoin Server", function()
+    game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+end, false)
+
+cOpt(MiscTab, "Destroy Menu", function() HugoHub:Destroy() end, false)
+
+--=================== ENGINE / PERMANENT =================--
+-- Infinite Jump (BodyVelocity)
+UserInputService.JumpRequest:Connect(function()
+    if s.InfJump and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        local bv = Instance.new("BodyVelocity")
+        bv.Velocity = Vector3.new(0, 55, 0)
+        bv.MaxForce = Vector3.new(0, 99999, 0)
+        bv.Parent = player.Character.HumanoidRootPart
+        task.wait(0.1)
+        bv:Destroy()
+    end
+end)
+
+-- Main Loop
+RunService.Heartbeat:Connect(function()
+    local char = player.Character
+    if char then
+        -- Anti-Ragdoll
+        local r = char:FindFirstChild("RagdollClient")
+        if r then r.Disabled = true end
+
+        -- Noclip
+        if s.Noclip then
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then v.CanCollide = false end
+            end
+        end
+
+        -- Fullbright
+        if s.Fullbright then
+            Lighting.Ambient = Color3.new(1, 1, 1)
+        end
+    end
+end)
+
+print("[HugoScripts] Full Hub V2 Loaded (Native Remotes)")
